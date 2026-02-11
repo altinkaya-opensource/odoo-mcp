@@ -1,0 +1,21 @@
+[project]
+name = "mcp-server-odoo"
+version = "1.0.0"
+description = "MCP server for Odoo ERP - connects AI assistants via XML-RPC"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0-or-later"}
+authors = [
+    {name = "Ahmet Yiğit Budak", email = "yibudak@pm.me"},
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+mcp-server-odoo = "mcp_server_odoo.server:create_server"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

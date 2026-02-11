@@ -1,0 +1,42 @@
+exclude: |
+  (?x)
+  # Ignore the analysis directory (third-party reference code)
+  ^analysis-mcp-server-odoo/|
+  # Ignore build and dist directories
+  /build/|/dist/|
+  .svg$|
+  (LICENSE.*|COPYING.*)
+default_language_version:
+  python: python3
+  node: "22.9.0"
+repos:
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: prettier
+        args:
+          - --write
+          - --list-different
+          - --ignore-unknown
+        types: [text]
+        files: \.(css|htm|html|js|json|jsx|less|md|scss|toml|ts|yaml|yml)$
+        language: node
+        additional_dependencies:
+          - "prettier@3.3.3"
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: debug-statements
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
