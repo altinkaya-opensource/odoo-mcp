@@ -17,6 +17,8 @@ No Odoo module installation required. Just point it at any Odoo 12+ instance.
 
 ## ⚡ Quick Start
 
+No cloning required — just run directly from GitHub with [uv](https://docs.astral.sh/uv/):
+
 ### 🖥️ With Claude Code
 
 ```bash
@@ -25,7 +27,7 @@ claude mcp add odoo \
     -e ODOO_DB=mydb \
     -e ODOO_USER=admin \
     -e ODOO_PASSWORD=admin \
-    -- uv run --directory /path/to/odoo-mcp python -m mcp_server_odoo
+    -- uvx --from git+https://github.com/altinkaya-opensource/odoo-mcp mcp-server-odoo
 ```
 
 ### 🖱️ With Claude Desktop
@@ -36,10 +38,10 @@ Add to your `claude_desktop_config.json`:
 {
     "mcpServers": {
         "odoo": {
-            "command": "uv",
+            "command": "uvx",
             "args": [
-                "run", "--directory", "/path/to/odoo-mcp",
-                "python", "-m", "mcp_server_odoo"
+                "--from", "git+https://github.com/altinkaya-opensource/odoo-mcp",
+                "mcp-server-odoo"
             ],
             "env": {
                 "ODOO_URL": "http://localhost:8069",
@@ -63,7 +65,7 @@ claude mcp add odoo \
     -e ODOO_USER=admin \
     -e ODOO_PASSWORD=admin \
     -e READONLY_MODE=true \
-    -- uv run --directory /path/to/odoo-mcp python -m mcp_server_odoo
+    -- uvx --from git+https://github.com/altinkaya-opensource/odoo-mcp mcp-server-odoo
 ```
 
 ## 🛠️ Tools
