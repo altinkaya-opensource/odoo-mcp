@@ -1,6 +1,8 @@
 """MCP tool definitions for Odoo operations."""
 
+import base64
 import logging
+import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -222,6 +224,79 @@ def _register_read_tools(
         """
         fields_info = conn.fields_get(model, attributes)
         return {"model": model, "fields": fields_info, "count": len(fields_info)}
+
+    # =================================================================
+    # 6. save_binary_field
+    # =================================================================
+    @app.tool()
+    async def save_binary_field(
+        model: str,
+        record_id: int,
+        field: str,
+        output_path: str,
+    ) -> dict[str, Any]:
+        """Save a binary/image field from an Odoo record directly to a file.
+
+        Use this instead of read_record when you need to fetch large binary
+        fields (like images, attachments). This avoids returning the large
+        base64 data in the response - it writes the file to disk and returns
+        only the file path and metadata.
+
+        Args:
+            model: Odoo model name, e.g. "hr.employee".
+            field: Binary field name, e.g. "image_1920", "image_128".
+            record_id: The record ID to read from.
+            output_path: Absolute file path to save the binary data to.
+                Parent directories will be created if needed.
+
+        Returns:
+            {"success": true, "path": str, "size_bytes": int, "model": str,
+             "record_id": int, "field": str}
+
+        Examples:
+            Save employee photo:
+                save_binary_field("hr.employee", 11, "image_1920",
+                    "/Users/me/output/photo.png")
+            Save product image:
+                save_binary_field("product.product", 42, "image_1920",
+                    "/tmp/product_image.png")
+        """
+        records = conn.read(model, [record_id], [field])
+        if not records:
+            raise ValueError(f"Record not found: {model} ID {record_id}")
+
+        b64_data = records[0].get(field)
+        if not b64_data:
+            raise ValueError(
+                f"Field '{field}' is empty on {model} ID {record_id}"
+            )
+
+        # Decode and save
+        try:
+            binary_data = base64.b64decode(b64_data)
+        except Exception as exc:
+            raise ValueError(f"Failed to decode base64 data: {exc}") from exc
+
+        parent_dir = os.path.dirname(output_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        with open(output_path, "wb") as f:
+            f.write(binary_data)
+
+        size_bytes = len(binary_data)
+        logger.info(
+            "Saved %s.%s (ID %d) to %s (%d bytes)",
+            model, field, record_id, output_path, size_bytes,
+        )
+
+        return {
+            "success": True,
+            "path": output_path,
+            "size_bytes": size_bytes,
+            "model": model,
+            "record_id": record_id,
+            "field": field,
+        }
 
 
 def _register_write_tools(
