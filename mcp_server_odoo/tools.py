@@ -235,8 +235,7 @@ def _register_read_tools(
         """
         fields_info = conn.fields_get(model, attributes)
         if config.toon:
-            parts = [encode_fields(fields_info), "~", f"model:{model} count:{len(fields_info)}"]
-            return "\n".join(parts)
+            return encode_fields(fields_info, model=model)
         return {"model": model, "fields": fields_info, "count": len(fields_info)}
 
 
