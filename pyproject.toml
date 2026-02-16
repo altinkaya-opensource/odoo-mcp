@@ -6,10 +6,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "AGPL-3.0-or-later"}
 authors = [
-    {name = "Ahmet Yiğit Budak", email = "yibudak@pm.me"},
+    {name = "Ahmet Yiğit Budak", email = "yigit@altinkaya.com"},
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "fastmcp>=3.0.0rc1",
     "python-dotenv>=1.0",
 ]
 

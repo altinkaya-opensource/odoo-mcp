@@ -36,21 +36,22 @@ Add to your `claude_desktop_config.json`:
 
 ```json
 {
-    "mcpServers": {
-        "odoo": {
-            "command": "uvx",
-            "args": [
-                "--from", "git+https://github.com/altinkaya-opensource/odoo-mcp",
-                "mcp-server-odoo"
-            ],
-            "env": {
-                "ODOO_URL": "http://localhost:8069",
-                "ODOO_DB": "mydb",
-                "ODOO_USER": "admin",
-                "ODOO_PASSWORD": "admin"
-            }
-        }
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/altinkaya-opensource/odoo-mcp",
+        "mcp-server-odoo"
+      ],
+      "env": {
+        "ODOO_URL": "http://localhost:8069",
+        "ODOO_DB": "mydb",
+        "ODOO_USER": "admin",
+        "ODOO_PASSWORD": "admin"
+      }
     }
+  }
 }
 ```
 
@@ -72,21 +73,21 @@ claude mcp add odoo \
 
 ### 📖 Read Operations
 
-| Tool | Description |
-| --- | --- |
-| `search_records` | 🔍 Search any model with domain filters, field selection, pagination, and sorting |
-| `read_record` | 📄 Read a single record by ID with smart field selection |
-| `get_record_count` | 🔢 Count records matching a domain filter (lightweight, no data fetched) |
-| `list_models` | 📋 List all non-transient models available in the database |
-| `get_model_fields` | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model |
+| Tool               | Description                                                                       |
+| ------------------ | --------------------------------------------------------------------------------- |
+| `search_records`   | 🔍 Search any model with domain filters, field selection, pagination, and sorting |
+| `read_record`      | 📄 Read a single record by ID with smart field selection                          |
+| `get_record_count` | 🔢 Count records matching a domain filter (lightweight, no data fetched)          |
+| `list_models`      | 📋 List all non-transient models available in the database                        |
+| `get_model_fields` | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model      |
 
 ### ✏️ Write Operations
 
-| Tool | Description |
-| --- | --- |
-| `create_record` | ➕ Create a new record in any model |
-| `update_record` | 📝 Update fields on an existing record |
-| `delete_record` | 🗑️ Delete a record by ID |
+| Tool             | Description                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `create_record`  | ➕ Create a new record in any model                                                   |
+| `update_record`  | 📝 Update fields on an existing record                                                |
+| `delete_record`  | 🗑️ Delete a record by ID                                                              |
 | `execute_method` | ⚙️ Call any business method (e.g. `action_confirm`, `button_validate`, `action_post`) |
 
 > 🚫 Write tools are disabled when `READONLY_MODE=true`.
@@ -121,36 +122,43 @@ Odoo's `"2025-06-07 21:55:52"` datetime strings are automatically converted to
 ## 💡 Tool Usage Examples
 
 **🔍 Search for Turkish companies:**
+
 ```
 search_records("res.partner", [["is_company", "=", true], ["country_id.code", "=", "TR"]], limit=20)
 ```
 
 **🔢 Count open sale orders:**
+
 ```
 get_record_count("sale.order", [["state", "=", "sale"]])
 ```
 
 **📄 Read a specific product with all fields:**
+
 ```
 read_record("product.product", 42, fields=["__all__"])
 ```
 
 **✅ Confirm a sale order:**
+
 ```
 execute_method("sale.order", "action_confirm", [42])
 ```
 
 **📦 Validate a stock picking:**
+
 ```
 execute_method("stock.picking", "button_validate", [15])
 ```
 
 **💰 Post an invoice:**
+
 ```
 execute_method("account.move", "action_post", [100])
 ```
 
 **🏗️ Discover fields on a model:**
+
 ```
 get_model_fields("sale.order", attributes=["string", "type", "required"])
 ```
@@ -159,16 +167,16 @@ get_model_fields("sale.order", attributes=["string", "type", "required"])
 
 All configuration is done through environment variables:
 
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `ODOO_URL` | ✅ | | Odoo server URL (e.g. `http://localhost:8069`) |
-| `ODOO_DB` | ✅ | | Database name |
-| `ODOO_USER` | ✅ | | Username |
-| `ODOO_PASSWORD` | ✅ | | Password or API key |
-| `READONLY_MODE` | | `false` | Set to `true` to disable all write operations |
-| `ODOO_MCP_LOG_LEVEL` | | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `ODOO_MCP_LOG_FILE` | | stderr | Path to log file |
-| `ODOO_MCP_DEFAULT_LIMIT` | | `10` | Default record limit for search operations |
+| Variable                 | Required | Default | Description                                     |
+| ------------------------ | -------- | ------- | ----------------------------------------------- |
+| `ODOO_URL`               | ✅       |         | Odoo server URL (e.g. `http://localhost:8069`)  |
+| `ODOO_DB`                | ✅       |         | Database name                                   |
+| `ODOO_USER`              | ✅       |         | Username                                        |
+| `ODOO_PASSWORD`          | ✅       |         | Password or API key                             |
+| `READONLY_MODE`          |          | `false` | Set to `true` to disable all write operations   |
+| `ODOO_MCP_LOG_LEVEL`     |          | `INFO`  | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `ODOO_MCP_LOG_FILE`      |          | stderr  | Path to log file                                |
+| `ODOO_MCP_DEFAULT_LIMIT` |          | `10`    | Default record limit for search operations      |
 
 Alternatively, create a `.env` file in the project root.
 

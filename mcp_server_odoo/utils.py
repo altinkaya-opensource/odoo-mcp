@@ -5,25 +5,177 @@ import json
 from datetime import datetime
 from typing import Any
 
+# -- Domain validation constants -------------------------------------------
+
+VALID_OPERATORS = frozenset(
+    {
+        "=",
+        "!=",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "like",
+        "ilike",
+        "not like",
+        "not ilike",
+        "=like",
+        "=ilike",
+        "in",
+        "not in",
+        "child_of",
+        "parent_of",
+        "=?",
+    }
+)
+
+DOMAIN_LOGIC_OPS = frozenset({"&", "|", "!"})
+
+
+class DomainValidationError(ValueError):
+    """Raised when a domain has structural or semantic errors.
+
+    The message is designed to be helpful to an LLM, explaining
+    what went wrong and how to fix it.
+    """
+
+
+def validate_domain(domain: list) -> list:
+    """Validate an Odoo domain for structural correctness.
+
+    Checks:
+    1. Each leaf is a list/tuple of exactly 3 elements: [field, operator, value]
+    2. The operator in each leaf is from the known set
+    3. Polish notation structure is correct ('&'/'|' consume 2 operands, '!' consumes 1)
+    4. Field names are non-empty strings
+    5. 'in' and 'not in' operators have list/tuple values
+
+    Returns the domain unchanged if valid.
+    Raises DomainValidationError with a helpful message if invalid.
+    """
+    if not domain:
+        return domain
+
+    for i, element in enumerate(domain):
+        if isinstance(element, str):
+            if element not in DOMAIN_LOGIC_OPS:
+                raise DomainValidationError(
+                    f"Domain element at index {i} is a string '{element}' "
+                    f"but is not a valid logic operator. "
+                    f"Valid logic operators are: & (AND), | (OR), ! (NOT). "
+                    f"If you meant this as a condition, wrap it in a leaf: "
+                    f"['{element}', '=', value]."
+                )
+            continue
+
+        if not isinstance(element, list | tuple):
+            raise DomainValidationError(
+                f"Domain element at index {i} has type {type(element).__name__} "
+                f"but must be a list of 3 elements [field, operator, value] "
+                f"or a logic operator string ('&', '|', '!')."
+            )
+
+        if len(element) != 3:
+            raise DomainValidationError(
+                f"Domain leaf at index {i} has {len(element)} elements: {element!r}. "
+                f"Each leaf must have exactly 3 elements: "
+                f"[field_name, operator, value]. "
+                f"Example: ['name', 'ilike', 'acme']."
+            )
+
+        field_name, operator, value = element
+
+        if not isinstance(field_name, str) or not field_name.strip():
+            raise DomainValidationError(
+                f"Domain leaf at index {i}: field name must be a non-empty string, "
+                f"got {field_name!r}. "
+                f"Example: 'partner_id.name', 'state', 'amount_total'."
+            )
+
+        if not isinstance(operator, str):
+            raise DomainValidationError(
+                f"Domain leaf at index {i}: operator must be a string, "
+                f"got {type(operator).__name__} ({operator!r}). "
+                f"Valid operators: {', '.join(sorted(VALID_OPERATORS))}."
+            )
+
+        if operator not in VALID_OPERATORS:
+            raise DomainValidationError(
+                f"Domain leaf at index {i}: unknown operator '{operator}'. "
+                f"Valid operators: {', '.join(sorted(VALID_OPERATORS))}. "
+                f"Common ones: = (equals), != (not equals), "
+                f"ilike (case-insensitive contains), "
+                f"in (value in list), not in (value not in list)."
+            )
+
+        if operator in ("in", "not in") and not isinstance(value, list | tuple):
+            raise DomainValidationError(
+                f"Domain leaf at index {i}: operator '{operator}' requires "
+                f"a list value, got {type(value).__name__} ({value!r}). "
+                f"Example: ['state', 'in', ['draft', 'sent']]."
+            )
+
+    _validate_polish_notation(domain)
+
+    return domain
+
+
+def _validate_polish_notation(domain: list) -> None:
+    """Validate that Polish notation operators consume the correct number of operands.
+
+    In Odoo domains:
+    - '&' and '|' are binary: they combine the next 2 operands
+    - '!' is unary: it negates the next 1 operand
+    - An "operand" is either a leaf or a sub-expression produced by another operator
+    - Multiple bare leaves without operators have implicit '&' between them
+
+    Uses a counter approach: each binary op needs 2 operands and produces 1 (net -1),
+    each unary op needs 1 and produces 1 (net 0), each leaf produces 1 (net +1).
+    A valid domain must have a final counter >= 1.
+    """
+    counter = 0
+    for element in domain:
+        if isinstance(element, str) and element in DOMAIN_LOGIC_OPS:
+            if element == "!":
+                pass  # needs 1, produces 1 => net 0
+            else:
+                counter -= 1  # needs 2 operands, produces 1 => net -1
+        else:
+            counter += 1  # leaf produces 1 operand
+
+    # In valid Polish notation the final counter must be >= 1.
+    # counter < 1 means there are more operators than leaves can satisfy.
+    if counter < 1:
+        raise DomainValidationError(
+            "Domain has too many operators for the number of conditions. "
+            "Each '&' or '|' needs exactly 2 conditions after it. "
+            "Each '!' needs exactly 1 condition after it. "
+            "Example: ['|', ['state','=','draft'], ['state','=','sent']] "
+            "means state is draft OR sent."
+        )
+
+
+# -- Domain parsing --------------------------------------------------------
+
 
 def parse_domain(domain: str | list | None) -> list:
-    """Parse a domain that may be a JSON string, Python repr, or list."""
+    """Parse and validate a domain that may be a JSON string, Python repr, or list."""
     if domain is None:
         return []
     if isinstance(domain, list):
-        return domain
+        return validate_domain(domain)
     # Try JSON first
     try:
         result = json.loads(domain)
         if isinstance(result, list):
-            return result
+            return validate_domain(result)
     except (json.JSONDecodeError, TypeError):
         pass
     # Try Python literal (handles single quotes, True/False)
     try:
         result = ast.literal_eval(domain)
         if isinstance(result, list):
-            return result
+            return validate_domain(result)
     except (ValueError, SyntaxError):
         pass
     raise ValueError(
@@ -50,6 +202,9 @@ def parse_list_param(value: str | list | None) -> list | None:
     except (ValueError, SyntaxError):
         pass
     raise ValueError(f"Expected JSON or Python list, got: {value[:120]}")
+
+
+# -- Date formatting -------------------------------------------------------
 
 
 def format_datetime(value: str) -> str:
