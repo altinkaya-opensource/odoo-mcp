@@ -26,6 +26,7 @@ class OdooConfig:
         self.log_level = os.getenv("ODOO_MCP_LOG_LEVEL", "INFO").upper()
         self.log_file = os.getenv("ODOO_MCP_LOG_FILE", "")
         self.default_limit = int(os.getenv("ODOO_MCP_DEFAULT_LIMIT", "10"))
+        self.toon = os.getenv("ODOO_MCP_TOON", "true").lower() not in ("0", "false", "no")
 
     @staticmethod
     def _require(name):

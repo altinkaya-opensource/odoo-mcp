@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import OdooConfig
 from .connection import OdooConnection
+from .toon import encode_fields, encode_single_record, toon_response
 from .utils import (
     get_smart_fields,
     parse_domain,
@@ -66,7 +67,7 @@ def _register_read_tools(
         limit: int = 10,
         offset: int = 0,
         order: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Search for records in an Odoo model.
 
         Args:
@@ -109,13 +110,16 @@ def _register_read_tools(
             order=order,
         )
         records = [process_record_dates(r) for r in records]
-        return {
+        result = {
             "records": records,
             "total": total,
             "limit": limit,
             "offset": offset,
             "model": model,
         }
+        if config.toon:
+            return toon_response(result, "records")
+        return result
 
     # =================================================================
     # 2. read_record
@@ -125,7 +129,7 @@ def _register_read_tools(
         model: str,
         record_id: int,
         fields: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Read a single Odoo record by ID.
 
         Args:
@@ -150,13 +154,16 @@ def _register_read_tools(
         records = conn.read(model, [record_id], fields_to_fetch)
         if not records:
             raise ValueError(f"Record not found: {model} ID {record_id}")
-        return process_record_dates(records[0])
+        record = process_record_dates(records[0])
+        if config.toon:
+            return encode_single_record(record)
+        return record
 
     # =================================================================
     # 3. list_models
     # =================================================================
     @app.tool()
-    async def list_models() -> dict[str, Any]:
+    async def list_models() -> dict[str, Any] | str:
         """List all Odoo models available in the database.
 
         Returns:
@@ -171,7 +178,10 @@ def _register_read_tools(
             order="model ASC",
         )
         models = [{"model": r["model"], "name": r["name"]} for r in model_records]
-        return {"models": models, "total": len(models), "readonly": config.readonly}
+        result = {"models": models, "total": len(models), "readonly": config.readonly}
+        if config.toon:
+            return toon_response(result, "models")
+        return result
 
     # =================================================================
     # 4. get_record_count
@@ -180,7 +190,7 @@ def _register_read_tools(
     async def get_record_count(
         model: str,
         domain: str | list | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Count records in an Odoo model matching a domain.
 
         Args:
@@ -196,7 +206,10 @@ def _register_read_tools(
         """
         parsed_domain = parse_domain(domain)
         count = conn.search_count(model, parsed_domain)
-        return {"model": model, "count": count}
+        result = {"model": model, "count": count}
+        if config.toon:
+            return encode_single_record(result)
+        return result
 
     # =================================================================
     # 5. get_model_fields
@@ -205,7 +218,7 @@ def _register_read_tools(
     async def get_model_fields(
         model: str,
         attributes: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Get field definitions for an Odoo model.
 
         Useful for discovering available fields before reading or
@@ -221,6 +234,9 @@ def _register_read_tools(
             {"model": str, "fields": {...}, "count": int}
         """
         fields_info = conn.fields_get(model, attributes)
+        if config.toon:
+            parts = [encode_fields(fields_info), "~", f"model:{model} count:{len(fields_info)}"]
+            return "\n".join(parts)
         return {"model": model, "fields": fields_info, "count": len(fields_info)}
 
 
@@ -238,7 +254,7 @@ def _register_write_tools(
     async def create_record(
         model: str,
         values: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Create a new record in an Odoo model.
 
         Args:
@@ -256,7 +272,10 @@ def _register_write_tools(
         records = conn.read(model, [record_id], ["id", "name", "display_name"])
         record = process_record_dates(records[0]) if records else {"id": record_id}
         url = f"{config.url}/web#id={record_id}&model={model}&view_type=form"
-        return {"success": True, "id": record_id, "record": record, "url": url}
+        result = {"success": True, "id": record_id, "record": record, "url": url}
+        if config.toon:
+            return encode_single_record(result)
+        return result
 
     # =================================================================
     # 4. update_record
@@ -266,7 +285,7 @@ def _register_write_tools(
         model: str,
         record_id: int,
         values: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Update an existing Odoo record.
 
         Args:
@@ -288,7 +307,10 @@ def _register_write_tools(
         records = conn.read(model, [record_id], ["id", "name", "display_name"])
         record = process_record_dates(records[0]) if records else {"id": record_id}
         url = f"{config.url}/web#id={record_id}&model={model}&view_type=form"
-        return {"success": True, "id": record_id, "record": record, "url": url}
+        result = {"success": True, "id": record_id, "record": record, "url": url}
+        if config.toon:
+            return encode_single_record(result)
+        return result
 
     # =================================================================
     # 5. delete_record
@@ -297,7 +319,7 @@ def _register_write_tools(
     async def delete_record(
         model: str,
         record_id: int,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Delete an Odoo record.
 
         Args:
@@ -315,7 +337,10 @@ def _register_write_tools(
             existing[0].get("name") or existing[0].get("display_name") or str(record_id)
         )
         conn.unlink(model, [record_id])
-        return {"success": True, "deleted_id": record_id, "deleted_name": name}
+        result = {"success": True, "deleted_id": record_id, "deleted_name": name}
+        if config.toon:
+            return encode_single_record(result)
+        return result
 
     # =================================================================
     # 6. execute_method
@@ -327,7 +352,7 @@ def _register_write_tools(
         record_ids: list[int],
         args: list | None = None,
         kwargs: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
         """Call a business method on Odoo records.
 
         Use this for triggering workflows and actions, e.g.
@@ -354,11 +379,14 @@ def _register_write_tools(
         """
         _check_write(config)
         call_args = [record_ids] + (args or [])
-        result = conn.execute_kw(model, method, call_args, kwargs)
-        return {
+        raw_result = conn.execute_kw(model, method, call_args, kwargs)
+        result = {
             "success": True,
             "model": model,
             "method": method,
             "record_ids": record_ids,
-            "result": _safe_serialize(result),
+            "result": _safe_serialize(raw_result),
         }
+        if config.toon:
+            return encode_single_record(result)
+        return result

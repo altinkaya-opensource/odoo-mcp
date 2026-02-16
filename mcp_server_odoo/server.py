@@ -26,6 +26,8 @@ def create_server() -> FastMCP:
 
     mode = "READONLY" if config.readonly else "FULL ACCESS"
     logger.info("MCP server mode: %s", mode)
+    if config.toon:
+        logger.info("TOON output format enabled")
 
     register_tools(app, conn, config)
     logger.info("MCP server ready with 9 tools")
