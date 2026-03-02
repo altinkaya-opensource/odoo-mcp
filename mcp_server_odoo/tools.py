@@ -57,6 +57,20 @@ def _check_write(config: OdooConfig) -> None:
         )
 
 
+# ORM methods that modify data — blocked via execute_method in readonly mode
+BLOCKED_METHODS_READONLY = frozenset(
+    {
+        "create",
+        "write",
+        "unlink",
+        "copy",
+        "action_archive",
+        "action_unarchive",
+        "toggle_active",
+    }
+)
+
+
 def _handle_odoo_error(exc: OdooConnectionError, context: str) -> ToolError:
     """Convert OdooConnectionError to ToolError with helpful context."""
     msg = str(exc)
@@ -76,6 +90,36 @@ def _safe_serialize(value: Any) -> Any:
     return str(value)
 
 
+BLOCKED_PATH_PREFIXES = (
+    "/etc",
+    "/bin",
+    "/sbin",
+    "/usr/bin",
+    "/usr/sbin",
+    "/boot",
+    "/proc",
+    "/sys",
+    "/dev",
+    "/var/run",
+)
+
+
+def _validate_output_path(output_path: str) -> str:
+    """Validate and resolve a file output path.
+
+    Returns the resolved absolute path.
+    Raises ToolError if the path is unsafe.
+    """
+    resolved = os.path.realpath(os.path.expanduser(output_path))
+    for prefix in BLOCKED_PATH_PREFIXES:
+        if resolved.startswith(prefix):
+            raise ToolError(
+                f"Blocked output path: writing to '{prefix}' is not allowed. "
+                f"Choose a path under /tmp, your home directory, or a project folder."
+            )
+    return resolved
+
+
 def _parse_domain_safe(domain: str | list | None) -> list:
     """Parse domain and convert validation errors to ToolError."""
     try:
@@ -84,16 +128,16 @@ def _parse_domain_safe(domain: str | list | None) -> list:
         raise ToolError(str(exc)) from exc
 
 
-def _read_back_record(
+async def _read_back_record(
     conn: OdooConnection, model: str, record_id: int
 ) -> dict[str, Any]:
     """Read back a record with smart field selection after a write operation."""
     try:
-        fi = conn.fields_get(model)
+        fi = await conn.fields_get(model)
         read_fields = get_smart_fields(fi)
     except Exception:
         read_fields = None
-    records = conn.read(model, [record_id], read_fields)
+    records = await conn.read(model, [record_id], read_fields)
     return process_record_dates(records[0]) if records else {"id": record_id}
 
 
@@ -173,19 +217,19 @@ def _register_search_tools(
         parsed_fields = parse_list_param(fields) if isinstance(fields, str) else fields
 
         try:
-            total = conn.search_count(model, parsed_domain)
+            total = await conn.search_count(model, parsed_domain)
 
             fields_to_fetch = parsed_fields
             if parsed_fields is None:
                 try:
-                    fi = conn.fields_get(model)
+                    fi = await conn.fields_get(model)
                     fields_to_fetch = get_smart_fields(fi)
                 except Exception:
                     fields_to_fetch = None
             elif parsed_fields == ["__all__"]:
                 fields_to_fetch = None
 
-            records = conn.search_read(
+            records = await conn.search_read(
                 model,
                 parsed_domain,
                 fields=fields_to_fetch,
@@ -236,7 +280,7 @@ def _register_search_tools(
         fields_to_fetch = fields
         if fields is None:
             try:
-                fi = conn.fields_get(model)
+                fi = await conn.fields_get(model)
                 fields_to_fetch = get_smart_fields(fi)
             except Exception:
                 fields_to_fetch = None
@@ -244,7 +288,7 @@ def _register_search_tools(
             fields_to_fetch = None
 
         try:
-            records = conn.read(model, [record_id], fields_to_fetch)
+            records = await conn.read(model, [record_id], fields_to_fetch)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"reading {model} ID {record_id}") from exc
 
@@ -383,7 +427,7 @@ def _register_read_group_tools(
             parsed_fields = fields
 
         try:
-            groups = conn.read_group(
+            groups = await conn.read_group(
                 model,
                 parsed_domain,
                 parsed_fields,
@@ -421,7 +465,30 @@ def _register_model_tools(
         annotations={"readOnlyHint": True, "openWorldHint": False},
         timeout=30.0,
     )
-    async def list_models() -> dict[str, Any]:
+    async def list_models(
+        query: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional search term to filter models by technical name "
+                    "or human-readable label (case-insensitive). "
+                    "Example: 'sale', 'partner', 'stock'."
+                ),
+            ),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(
+                description="Maximum number of models to return.",
+                ge=1,
+                le=500,
+            ),
+        ] = 100,
+        offset: Annotated[
+            int,
+            Field(description="Number of models to skip (for pagination).", ge=0),
+        ] = 0,
+    ) -> dict[str, Any]:
         """List all non-transient Odoo models available in the database.
 
         Use this to discover which models exist before searching or
@@ -429,22 +496,40 @@ def _register_model_tools(
 
         Returns a dict with:
           - models: list of {model: str, name: str} dicts
-          - total: number of models
+          - total: total count of matching models (ignoring limit/offset)
+          - limit, offset: echo of the parameters used
           - readonly: whether the server is in read-only mode
         """
         try:
-            domain = [("transient", "=", False)]
-            model_records = conn.search_read(
+            domain: list = [("transient", "=", False)]
+            if query:
+                domain.extend(
+                    [
+                        "|",
+                        ("model", "ilike", query),
+                        ("name", "ilike", query),
+                    ]
+                )
+            total = await conn.search_count("ir.model", domain)
+            model_records = await conn.search_read(
                 "ir.model",
                 domain,
                 fields=["model", "name"],
+                limit=limit,
+                offset=offset,
                 order="model ASC",
             )
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, "listing models") from exc
 
         models = [{"model": r["model"], "name": r["name"]} for r in model_records]
-        return {"models": models, "total": len(models), "readonly": config.readonly}
+        return {
+            "models": models,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "readonly": config.readonly,
+        }
 
     # =================================================================
     # 5. get_record_count
@@ -468,7 +553,7 @@ def _register_model_tools(
         parsed_domain = _parse_domain_safe(domain)
 
         try:
-            count = conn.search_count(model, parsed_domain)
+            count = await conn.search_count(model, parsed_domain)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"counting {model}") from exc
 
@@ -558,8 +643,10 @@ def _register_model_tools(
                 save_binary_field("product.product", 42, "image_1920",
                     "/tmp/product_image.png")
         """
+        resolved_path = _validate_output_path(output_path)
+
         try:
-            records = conn.read(model, [record_id], [field])
+            records = await conn.read(model, [record_id], [field])
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"reading {model} ID {record_id}") from exc
 
@@ -575,10 +662,10 @@ def _register_model_tools(
         except Exception as exc:
             raise ToolError(f"Failed to decode base64 data: {exc}") from exc
 
-        parent_dir = os.path.dirname(output_path)
+        parent_dir = os.path.dirname(resolved_path)
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
-        with open(output_path, "wb") as f:
+        with open(resolved_path, "wb") as f:
             f.write(binary_data)
 
         size_bytes = len(binary_data)
@@ -587,13 +674,13 @@ def _register_model_tools(
             model,
             field,
             record_id,
-            output_path,
+            resolved_path,
             size_bytes,
         )
 
         return {
             "success": True,
-            "path": output_path,
+            "path": resolved_path,
             "size_bytes": size_bytes,
             "model": model,
             "record_id": record_id,
@@ -643,7 +730,7 @@ def _register_write_tools(
 
         try:
             record_id = conn.create(model, values)
-            record = _read_back_record(conn, model, record_id)
+            record = await _read_back_record(conn, model, record_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"creating {model}") from exc
 
@@ -701,7 +788,7 @@ def _register_write_tools(
 
         try:
             conn.write(model, [record_id], values)
-            record = _read_back_record(conn, model, record_id)
+            record = await _read_back_record(conn, model, record_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"updating {model} ID {record_id}") from exc
 
@@ -805,10 +892,15 @@ def _register_write_tools(
           Post invoice: execute_method("account.move", "action_post", [100])
         """
         _check_write(config)
+        if config.readonly and method in BLOCKED_METHODS_READONLY:
+            raise ToolError(
+                f"Method '{method}' is blocked in readonly mode because "
+                f"it modifies data. Disable READONLY_MODE to use it."
+            )
 
         try:
             call_args = [record_ids] + (args or [])
-            result = conn.execute_kw(model, method, call_args, kwargs)
+            result = await conn.execute_kw(model, method, call_args, kwargs)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"calling {model}.{method}") from exc
 
@@ -868,7 +960,7 @@ def _register_copy_tools(
 
         try:
             new_id = conn.copy(model, record_id, default)
-            record = _read_back_record(conn, model, new_id)
+            record = await _read_back_record(conn, model, new_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"copying {model} ID {record_id}") from exc
 

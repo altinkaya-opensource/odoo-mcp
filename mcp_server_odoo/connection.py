@@ -1,5 +1,6 @@
 """Odoo XML-RPC connection management."""
 
+import asyncio
 import logging
 import xmlrpc.client
 from typing import Any
@@ -58,26 +59,43 @@ class OdooConnection:
 
     # -- generic execute_kw wrapper ---------------------------------------
 
-    def execute_kw(
+    def _rpc_call(self, model: str, method: str, args: list, kwargs: dict) -> Any:
+        """Low-level XML-RPC call (no retry)."""
+        return self._object.execute_kw(
+            self.config.db,
+            self._uid,
+            self.config.password,
+            model,
+            method,
+            args,
+            kwargs,
+        )
+
+    def _execute_kw_sync(
         self,
         model: str,
         method: str,
         args: list,
         kwargs: dict | None = None,
     ) -> Any:
-        """Call execute_kw on the Odoo object endpoint."""
+        """Synchronous XML-RPC call with auto-reconnect on transport errors."""
         if self._object is None or self._uid is None:
             raise OdooConnectionError("Not connected. Call connect() first.")
+        kw = kwargs or {}
         try:
-            return self._object.execute_kw(
-                self.config.db,
-                self._uid,
-                self.config.password,
-                model,
-                method,
-                args,
-                kwargs or {},
-            )
+            return self._rpc_call(model, method, args, kw)
+        except xmlrpc.client.Fault as exc:
+            # Application error from Odoo — no point reconnecting
+            raise OdooConnectionError(
+                f"RPC fault on {model}.{method}: {exc.faultString}"
+            ) from exc
+        except Exception:
+            # Transport error — try reconnecting once
+            pass
+        try:
+            logger.warning("Connection lost, reconnecting to Odoo...")
+            self.connect()
+            return self._rpc_call(model, method, args, kw)
         except xmlrpc.client.Fault as exc:
             raise OdooConnectionError(
                 f"RPC fault on {model}.{method}: {exc.faultString}"
@@ -87,9 +105,21 @@ class OdooConnection:
         except Exception as exc:
             raise OdooConnectionError(f"Error calling {model}.{method}: {exc}") from exc
 
+    async def execute_kw(
+        self,
+        model: str,
+        method: str,
+        args: list,
+        kwargs: dict | None = None,
+    ) -> Any:
+        """Call execute_kw without blocking the event loop."""
+        return await asyncio.to_thread(
+            self._execute_kw_sync, model, method, args, kwargs
+        )
+
     # -- convenience helpers used by tools --------------------------------
 
-    def search_read(
+    async def search_read(
         self,
         model: str,
         domain: list,
@@ -105,12 +135,12 @@ class OdooConnection:
             kwargs["fields"] = fields
         if order:
             kwargs["order"] = order
-        return self.execute_kw(model, "search_read", [domain], kwargs)
+        return await self.execute_kw(model, "search_read", [domain], kwargs)
 
-    def search_count(self, model: str, domain: list) -> int:
-        return self.execute_kw(model, "search_count", [domain])
+    async def search_count(self, model: str, domain: list) -> int:
+        return await self.execute_kw(model, "search_count", [domain])
 
-    def read_group(
+    async def read_group(
         self,
         model: str,
         domain: list,
@@ -126,9 +156,11 @@ class OdooConnection:
             kwargs["limit"] = limit
         if orderby:
             kwargs["orderby"] = orderby
-        return self.execute_kw(model, "read_group", [domain, fields, groupby], kwargs)
+        return await self.execute_kw(
+            model, "read_group", [domain, fields, groupby], kwargs
+        )
 
-    def read(
+    async def read(
         self,
         model: str,
         ids: list[int],
@@ -137,22 +169,24 @@ class OdooConnection:
         kwargs = {}
         if fields:
             kwargs["fields"] = fields
-        return self.execute_kw(model, "read", [ids], kwargs)
+        return await self.execute_kw(model, "read", [ids], kwargs)
 
-    def create(self, model: str, values: dict) -> int:
-        return self.execute_kw(model, "create", [values])
+    async def create(self, model: str, values: dict) -> int:
+        return await self.execute_kw(model, "create", [values])
 
-    def write(self, model: str, ids: list[int], values: dict) -> bool:
-        return self.execute_kw(model, "write", [ids, values])
+    async def write(self, model: str, ids: list[int], values: dict) -> bool:
+        return await self.execute_kw(model, "write", [ids, values])
 
-    def unlink(self, model: str, ids: list[int]) -> bool:
-        return self.execute_kw(model, "unlink", [ids])
+    async def unlink(self, model: str, ids: list[int]) -> bool:
+        return await self.execute_kw(model, "unlink", [ids])
 
-    def copy(self, model: str, record_id: int, default: dict | None = None) -> int:
+    async def copy(
+        self, model: str, record_id: int, default: dict | None = None
+    ) -> int:
         kwargs = {"default": default} if default else {}
-        return self.execute_kw(model, "copy", [record_id], kwargs)
+        return await self.execute_kw(model, "copy", [record_id], kwargs)
 
-    def fields_get(
+    async def fields_get(
         self,
         model: str,
         attributes: list[str] | None = None,
@@ -160,4 +194,4 @@ class OdooConnection:
         kwargs = {}
         if attributes:
             kwargs["attributes"] = attributes
-        return self.execute_kw(model, "fields_get", [], kwargs)
+        return await self.execute_kw(model, "fields_get", [], kwargs)
