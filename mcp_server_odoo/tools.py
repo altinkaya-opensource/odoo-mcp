@@ -96,6 +96,7 @@ def register_tools(
     _register_search_tools(app, conn)
     _register_model_tools(app, conn, config)
     _register_write_tools(app, conn, config)
+    _register_copy_tools(app, conn, config)
 
 
 def _register_search_tools(
@@ -655,3 +656,59 @@ def _register_write_tools(
             "record_ids": record_ids,
             "result": _safe_serialize(result),
         }
+
+
+def _register_copy_tools(
+    app: FastMCP,
+    conn: OdooConnection,
+    config: OdooConfig,
+) -> None:
+    """Register record duplication tools."""
+
+    # =================================================================
+    # 11. copy_record
+    # =================================================================
+    @app.tool(
+        annotations={"readOnlyHint": False, "destructiveHint": False},
+        timeout=30.0,
+    )
+    async def copy_record(
+        model: Annotated[str, Field(description=MODEL_DESCRIPTION)],
+        record_id: Annotated[
+            int,
+            Field(description="The numeric ID of the record to copy.", ge=1),
+        ],
+        default: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional dict of field values to override in the copy. "
+                    "Example: {'name': 'New Name'} to change the name of the "
+                    "duplicate. Fields not listed here keep their original values."
+                ),
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Duplicate an existing Odoo record using the ORM copy method.
+
+        Creates a full copy of the record, including copyable One2many lines
+        and Many2many links. Computed fields are recalculated on the new record.
+
+        Returns: {"success": true, "id": int, "record": {...}, "url": str}
+
+        Examples:
+          Copy a product: copy_record("product.product", 42)
+          Copy a sale order with new partner:
+            copy_record("sale.order", 10, {"partner_id": 99})
+        """
+        _check_write(config)
+
+        try:
+            new_id = conn.copy(model, record_id, default)
+            records = conn.read(model, [new_id], ["id"])
+            record = process_record_dates(records[0]) if records else {"id": new_id}
+        except OdooConnectionError as exc:
+            raise _handle_odoo_error(exc, f"copying {model} ID {record_id}") from exc
+
+        url = f"{config.url}/web#id={new_id}&model={model}&view_type=form"
+        return {"success": True, "id": new_id, "record": record, "url": url}

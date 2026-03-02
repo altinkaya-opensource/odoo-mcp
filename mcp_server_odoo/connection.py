@@ -132,6 +132,10 @@ class OdooConnection:
     def unlink(self, model: str, ids: list[int]) -> bool:
         return self.execute_kw(model, "unlink", [ids])
 
+    def copy(self, model: str, record_id: int, default: dict | None = None) -> int:
+        kwargs = {"default": default} if default else {}
+        return self.execute_kw(model, "copy", [record_id], kwargs)
+
     def fields_get(
         self,
         model: str,

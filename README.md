@@ -73,13 +73,14 @@ claude mcp add odoo \
 
 ### 📖 Read Operations
 
-| Tool               | Description                                                                       |
-| ------------------ | --------------------------------------------------------------------------------- |
-| `search_records`   | 🔍 Search any model with domain filters, field selection, pagination, and sorting |
-| `read_record`      | 📄 Read a single record by ID with smart field selection                          |
-| `get_record_count` | 🔢 Count records matching a domain filter (lightweight, no data fetched)          |
-| `list_models`      | 📋 List all non-transient models available in the database                        |
-| `get_model_fields` | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model      |
+| Tool                | Description                                                                       |
+| ------------------- | --------------------------------------------------------------------------------- |
+| `search_records`    | 🔍 Search any model with domain filters, field selection, pagination, and sorting |
+| `read_record`       | 📄 Read a single record by ID with smart field selection                          |
+| `get_record_count`  | 🔢 Count records matching a domain filter (lightweight, no data fetched)          |
+| `list_models`       | 📋 List all non-transient models available in the database                        |
+| `get_model_fields`  | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model      |
+| `save_binary_field` | 💾 Save a binary/image field from a record directly to a local file               |
 
 ### ✏️ Write Operations
 
@@ -88,6 +89,7 @@ claude mcp add odoo \
 | `create_record`  | ➕ Create a new record in any model                                                   |
 | `update_record`  | 📝 Update fields on an existing record                                                |
 | `delete_record`  | 🗑️ Delete a record by ID                                                              |
+| `copy_record`    | 📋 Duplicate an existing record with optional field overrides                         |
 | `execute_method` | ⚙️ Call any business method (e.g. `action_confirm`, `button_validate`, `action_post`) |
 
 > 🚫 Write tools are disabled when `READONLY_MODE=true`.
@@ -155,6 +157,18 @@ execute_method("stock.picking", "button_validate", [15])
 
 ```
 execute_method("account.move", "action_post", [100])
+```
+
+**📋 Duplicate a sale order with a different partner:**
+
+```
+copy_record("sale.order", 10, default={"partner_id": 99})
+```
+
+**💾 Save a product image to disk:**
+
+```
+save_binary_field("product.product", 42, "image_1920", "/tmp/product_image.png")
 ```
 
 **🏗️ Discover fields on a model:**
