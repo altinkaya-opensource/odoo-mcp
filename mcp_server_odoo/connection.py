@@ -16,8 +16,6 @@ class OdooConnectionError(Exception):
 class OdooConnection:
     """Manages XML-RPC connection to Odoo."""
 
-    TIMEOUT = 60
-
     def __init__(self, config: OdooConfig):
         self.config = config
         self._uid: int | None = None

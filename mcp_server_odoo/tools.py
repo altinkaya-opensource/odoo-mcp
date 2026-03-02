@@ -84,6 +84,19 @@ def _parse_domain_safe(domain: str | list | None) -> list:
         raise ToolError(str(exc)) from exc
 
 
+def _read_back_record(
+    conn: OdooConnection, model: str, record_id: int
+) -> dict[str, Any]:
+    """Read back a record with smart field selection after a write operation."""
+    try:
+        fi = conn.fields_get(model)
+        read_fields = get_smart_fields(fi)
+    except Exception:
+        read_fields = None
+    records = conn.read(model, [record_id], read_fields)
+    return process_record_dates(records[0]) if records else {"id": record_id}
+
+
 # -- Tool registration ----------------------------------------------------
 
 
@@ -93,7 +106,7 @@ def register_tools(
     config: OdooConfig,
 ) -> None:
     """Register all MCP tools on the FastMCP app instance."""
-    _register_search_tools(app, conn)
+    _register_search_tools(app, conn, config)
     _register_read_group_tools(app, conn)
     _register_model_tools(app, conn, config)
     _register_write_tools(app, conn, config)
@@ -103,6 +116,7 @@ def register_tools(
 def _register_search_tools(
     app: FastMCP,
     conn: OdooConnection,
+    config: OdooConfig,
 ) -> None:
     """Register search and read tools."""
 
@@ -132,7 +146,7 @@ def _register_search_tools(
         limit: Annotated[
             int,
             Field(description="Maximum number of records to return.", ge=1, le=500),
-        ] = 10,
+        ] = config.default_limit,
         offset: Annotated[
             int,
             Field(description="Number of records to skip (for pagination).", ge=0),
@@ -401,7 +415,7 @@ def _register_model_tools(
     """Register model discovery and counting tools."""
 
     # =================================================================
-    # 3. list_models
+    # 4. list_models
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": True, "openWorldHint": False},
@@ -433,7 +447,7 @@ def _register_model_tools(
         return {"models": models, "total": len(models), "readonly": config.readonly}
 
     # =================================================================
-    # 4. get_record_count
+    # 5. get_record_count
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": True, "openWorldHint": False},
@@ -461,7 +475,7 @@ def _register_model_tools(
         return {"model": model, "count": count}
 
     # =================================================================
-    # 5. get_model_fields
+    # 6. get_model_fields
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": True, "openWorldHint": False},
@@ -495,7 +509,7 @@ def _register_model_tools(
         return {"model": model, "fields": fields_info, "count": len(fields_info)}
 
     # =================================================================
-    # 6. save_binary_field
+    # 7. save_binary_field
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "openWorldHint": False},
@@ -595,7 +609,7 @@ def _register_write_tools(
     """Register write/mutating tools."""
 
     # =================================================================
-    # 6. create_record
+    # 8. create_record
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": False},
@@ -629,8 +643,7 @@ def _register_write_tools(
 
         try:
             record_id = conn.create(model, values)
-            records = conn.read(model, [record_id], ["id"])
-            record = process_record_dates(records[0]) if records else {"id": record_id}
+            record = _read_back_record(conn, model, record_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"creating {model}") from exc
 
@@ -638,7 +651,7 @@ def _register_write_tools(
         return {"success": True, "id": record_id, "record": record, "url": url}
 
     # =================================================================
-    # 7. update_record
+    # 9. update_record
     # =================================================================
     @app.tool(
         annotations={
@@ -688,8 +701,7 @@ def _register_write_tools(
 
         try:
             conn.write(model, [record_id], values)
-            records = conn.read(model, [record_id], ["id"])
-            record = process_record_dates(records[0]) if records else {"id": record_id}
+            record = _read_back_record(conn, model, record_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"updating {model} ID {record_id}") from exc
 
@@ -697,7 +709,7 @@ def _register_write_tools(
         return {"success": True, "id": record_id, "record": record, "url": url}
 
     # =================================================================
-    # 8. delete_record
+    # 10. delete_record
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": True},
@@ -712,7 +724,7 @@ def _register_write_tools(
     ) -> dict[str, Any]:
         """Permanently delete an Odoo record. This action cannot be undone.
 
-        Returns: {"success": true, "deleted_id": int, "deleted_name": str}
+        Returns: {"success": true, "deleted_id": int}
         Raises an error if the record does not exist.
         """
         _check_write(config)
@@ -725,19 +737,15 @@ def _register_write_tools(
         if not existing:
             raise ToolError(f"Record not found: {model} with ID {record_id}")
 
-        name = (
-            existing[0].get("name") or existing[0].get("display_name") or str(record_id)
-        )
-
         try:
             conn.unlink(model, [record_id])
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"deleting {model} ID {record_id}") from exc
 
-        return {"success": True, "deleted_id": record_id, "deleted_name": name}
+        return {"success": True, "deleted_id": record_id}
 
     # =================================================================
-    # 9. execute_method
+    # 11. execute_method
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": False},
@@ -821,7 +829,7 @@ def _register_copy_tools(
     """Register record duplication tools."""
 
     # =================================================================
-    # 11. copy_record
+    # 12. copy_record
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": False},
@@ -860,8 +868,7 @@ def _register_copy_tools(
 
         try:
             new_id = conn.copy(model, record_id, default)
-            records = conn.read(model, [new_id], ["id"])
-            record = process_record_dates(records[0]) if records else {"id": new_id}
+            record = _read_back_record(conn, model, new_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"copying {model} ID {record_id}") from exc
 
