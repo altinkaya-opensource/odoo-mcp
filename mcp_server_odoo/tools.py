@@ -391,18 +391,14 @@ def _register_model_tools(
         try:
             records = conn.read(model, [record_id], [field])
         except OdooConnectionError as exc:
-            raise _handle_odoo_error(
-                exc, f"reading {model} ID {record_id}"
-            ) from exc
+            raise _handle_odoo_error(exc, f"reading {model} ID {record_id}") from exc
 
         if not records:
             raise ToolError(f"Record not found: {model} with ID {record_id}")
 
         b64_data = records[0].get(field)
         if not b64_data:
-            raise ToolError(
-                f"Field '{field}' is empty on {model} ID {record_id}"
-            )
+            raise ToolError(f"Field '{field}' is empty on {model} ID {record_id}")
 
         try:
             binary_data = base64.b64decode(b64_data)
@@ -418,7 +414,11 @@ def _register_model_tools(
         size_bytes = len(binary_data)
         logger.info(
             "Saved %s.%s (ID %d) to %s (%d bytes)",
-            model, field, record_id, output_path, size_bytes,
+            model,
+            field,
+            record_id,
+            output_path,
+            size_bytes,
         )
 
         return {
@@ -473,7 +473,7 @@ def _register_write_tools(
 
         try:
             record_id = conn.create(model, values)
-            records = conn.read(model, [record_id], ["id", "name", "display_name"])
+            records = conn.read(model, [record_id], ["id"])
             record = process_record_dates(records[0]) if records else {"id": record_id}
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"creating {model}") from exc
@@ -532,7 +532,7 @@ def _register_write_tools(
 
         try:
             conn.write(model, [record_id], values)
-            records = conn.read(model, [record_id], ["id", "name", "display_name"])
+            records = conn.read(model, [record_id], ["id"])
             record = process_record_dates(records[0]) if records else {"id": record_id}
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"updating {model} ID {record_id}") from exc
@@ -562,7 +562,7 @@ def _register_write_tools(
         _check_write(config)
 
         try:
-            existing = conn.read(model, [record_id], ["id", "name", "display_name"])
+            existing = conn.read(model, [record_id], ["id"])
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"deleting {model} ID {record_id}") from exc
 
