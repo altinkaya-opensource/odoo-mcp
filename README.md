@@ -80,6 +80,7 @@ claude mcp add odoo \
 | `get_record_count`  | 🔢 Count records matching a domain filter (lightweight, no data fetched)          |
 | `list_models`       | 📋 List all non-transient models available in the database                        |
 | `get_model_fields`  | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model      |
+| `read_group`        | 📊 Group records and compute aggregations (sum, avg, count) with date granularity |
 | `save_binary_field` | 💾 Save a binary/image field from a record directly to a local file               |
 
 ### ✏️ Write Operations
@@ -169,6 +170,24 @@ copy_record("sale.order", 10, default={"partner_id": 99})
 
 ```
 save_binary_field("product.product", 42, "image_1920", "/tmp/product_image.png")
+```
+
+**📊 Total sales by partner:**
+
+```
+read_group("sale.order", "partner_id", domain=[["state", "=", "sale"]], fields=["amount_total:sum"])
+```
+
+**📅 Monthly order counts:**
+
+```
+read_group("sale.order", "date_order:month", fields=["id:count"])
+```
+
+**📈 Average price by category:**
+
+```
+read_group("product.template", "categ_id", fields=["list_price:avg"])
 ```
 
 **🏗️ Discover fields on a model:**

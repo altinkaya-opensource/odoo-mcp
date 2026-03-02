@@ -112,6 +112,24 @@ class OdooConnection:
     def search_count(self, model: str, domain: list) -> int:
         return self.execute_kw(model, "search_count", [domain])
 
+    def read_group(
+        self,
+        model: str,
+        domain: list,
+        fields: list[str],
+        groupby: list[str],
+        offset: int = 0,
+        limit: int | None = None,
+        orderby: str | None = None,
+        lazy: bool = True,
+    ) -> list[dict[str, Any]]:
+        kwargs: dict[str, Any] = {"lazy": lazy, "offset": offset}
+        if limit is not None:
+            kwargs["limit"] = limit
+        if orderby:
+            kwargs["orderby"] = orderby
+        return self.execute_kw(model, "read_group", [domain, fields, groupby], kwargs)
+
     def read(
         self,
         model: str,

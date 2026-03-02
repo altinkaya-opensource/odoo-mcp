@@ -94,6 +94,7 @@ def register_tools(
 ) -> None:
     """Register all MCP tools on the FastMCP app instance."""
     _register_search_tools(app, conn)
+    _register_read_group_tools(app, conn)
     _register_model_tools(app, conn, config)
     _register_write_tools(app, conn, config)
     _register_copy_tools(app, conn, config)
@@ -236,6 +237,160 @@ def _register_search_tools(
         if not records:
             raise ToolError(f"Record not found: {model} with ID {record_id}")
         return process_record_dates(records[0])
+
+
+def _register_read_group_tools(
+    app: FastMCP,
+    conn: OdooConnection,
+) -> None:
+    """Register read_group aggregation tool."""
+
+    # =================================================================
+    # 3. read_group
+    # =================================================================
+    @app.tool(
+        annotations={"readOnlyHint": True, "openWorldHint": False},
+        timeout=60.0,
+    )
+    async def read_group(
+        model: Annotated[str, Field(description=MODEL_DESCRIPTION)],
+        groupby: Annotated[
+            str | list[str],
+            Field(
+                description=(
+                    "Field(s) to group by. Single string or list of strings. "
+                    "Supports date granularity syntax like 'date_order:month', "
+                    "'create_date:year', 'date_order:day'. "
+                    "Examples: 'partner_id', ['partner_id', 'state'], "
+                    "'date_order:month'."
+                ),
+            ),
+        ],
+        domain: Annotated[
+            str | list | None,
+            Field(description=DOMAIN_DESCRIPTION),
+        ] = None,
+        fields: Annotated[
+            str | list[str] | None,
+            Field(
+                description=(
+                    "Aggregation specs. List of field names with optional "
+                    "aggregate function: 'field:agg'. "
+                    "Supported aggregates: sum, avg, min, max, count, "
+                    "count_distinct, array_agg, bool_and, bool_or. "
+                    "Examples: ['amount_total:sum'], "
+                    "['amount_total:sum', 'amount_untaxed:avg']. "
+                    "null returns grouped fields and __count only."
+                ),
+            ),
+        ] = None,
+        limit: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "Maximum number of groups to return. "
+                    "null for no limit (default)."
+                ),
+                ge=1,
+            ),
+        ] = None,
+        offset: Annotated[
+            int,
+            Field(description="Number of groups to skip (for pagination).", ge=0),
+        ] = 0,
+        orderby: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Sort order for groups. "
+                    "Examples: 'partner_id asc', 'amount_total desc'. "
+                    "null uses Odoo default ordering."
+                ),
+            ),
+        ] = None,
+        lazy: Annotated[
+            bool,
+            Field(
+                description=(
+                    "If true (default), group by the first groupby field only "
+                    "and remaining groupby fields are put into __context. "
+                    "If false, group by all fields at once."
+                ),
+            ),
+        ] = True,
+    ) -> dict[str, Any]:
+        """Group records and compute aggregations (sum, avg, count, etc.).
+
+        Uses Odoo's read_group ORM method to run GROUP BY queries.
+        Ideal for analytics: totals by partner, monthly counts,
+        average prices by category, etc.
+
+        Returns a dict with keys:
+          - groups: list of group dicts, each containing grouped field
+            values, aggregated measures, __count, and __domain
+          - length: number of groups returned
+          - model, groupby, limit, offset: echo of parameters used
+
+        Examples:
+          Total sales by partner:
+            read_group("sale.order", "partner_id",
+                domain=[["state", "=", "sale"]],
+                fields=["amount_total:sum"])
+          Monthly order counts:
+            read_group("sale.order", "date_order:month",
+                fields=["id:count"])
+          Average price by category:
+            read_group("product.template", "categ_id",
+                fields=["list_price:avg"])
+        """
+        parsed_domain = _parse_domain_safe(domain)
+
+        # Normalize groupby
+        if isinstance(groupby, str):
+            try:
+                parsed_groupby = parse_list_param(groupby)
+            except Exception:
+                parsed_groupby = [groupby]
+        else:
+            parsed_groupby = groupby
+
+        if not parsed_groupby:
+            raise ToolError("groupby must specify at least one field.")
+
+        # Normalize fields
+        if isinstance(fields, str):
+            try:
+                parsed_fields = parse_list_param(fields)
+            except Exception:
+                parsed_fields = [fields]
+        elif fields is None:
+            parsed_fields = []
+        else:
+            parsed_fields = fields
+
+        try:
+            groups = conn.read_group(
+                model,
+                parsed_domain,
+                parsed_fields,
+                parsed_groupby,
+                offset=offset,
+                limit=limit,
+                orderby=orderby,
+                lazy=lazy,
+            )
+        except OdooConnectionError as exc:
+            raise _handle_odoo_error(exc, f"read_group on {model}") from exc
+
+        groups = [_safe_serialize(process_record_dates(g)) for g in groups]
+        return {
+            "groups": groups,
+            "length": len(groups),
+            "model": model,
+            "groupby": parsed_groupby,
+            "limit": limit,
+            "offset": offset,
+        }
 
 
 def _register_model_tools(
