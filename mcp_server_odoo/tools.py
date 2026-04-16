@@ -729,7 +729,7 @@ def _register_write_tools(
             )
 
         try:
-            record_id = conn.create(model, values)
+            record_id = await conn.create(model, values)
             record = await _read_back_record(conn, model, record_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"creating {model}") from exc
@@ -779,7 +779,7 @@ def _register_write_tools(
             )
 
         try:
-            existing = conn.read(model, [record_id], ["id"])
+            existing = await conn.read(model, [record_id], ["id"])
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"updating {model} ID {record_id}") from exc
 
@@ -787,7 +787,7 @@ def _register_write_tools(
             raise ToolError(f"Record not found: {model} with ID {record_id}")
 
         try:
-            conn.write(model, [record_id], values)
+            await conn.write(model, [record_id], values)
             record = await _read_back_record(conn, model, record_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"updating {model} ID {record_id}") from exc
@@ -817,7 +817,7 @@ def _register_write_tools(
         _check_write(config)
 
         try:
-            existing = conn.read(model, [record_id], ["id"])
+            existing = await conn.read(model, [record_id], ["id"])
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"deleting {model} ID {record_id}") from exc
 
@@ -825,7 +825,7 @@ def _register_write_tools(
             raise ToolError(f"Record not found: {model} with ID {record_id}")
 
         try:
-            conn.unlink(model, [record_id])
+            await conn.unlink(model, [record_id])
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"deleting {model} ID {record_id}") from exc
 
@@ -959,7 +959,7 @@ def _register_copy_tools(
         _check_write(config)
 
         try:
-            new_id = conn.copy(model, record_id, default)
+            new_id = await conn.copy(model, record_id, default)
             record = await _read_back_record(conn, model, new_id)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"copying {model} ID {record_id}") from exc

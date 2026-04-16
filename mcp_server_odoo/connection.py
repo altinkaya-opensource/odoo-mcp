@@ -37,7 +37,10 @@ class OdooConnection:
         # authenticate
         try:
             uid = self._common.authenticate(
-                self.config.db, self.config.username, self.config.password, {}
+                self.config.db,
+                self.config.username,
+                self.config.password,
+                {"interactive": False},
             )
         except Exception as exc:
             raise OdooConnectionError(f"Authentication failed: {exc}") from exc
