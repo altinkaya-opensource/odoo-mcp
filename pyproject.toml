@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-server-odoo = "mcp_server_odoo.server:create_server"
+mcp-server-odoo = "mcp_server_odoo.server:main"
 
 [build-system]
 requires = ["hatchling"]

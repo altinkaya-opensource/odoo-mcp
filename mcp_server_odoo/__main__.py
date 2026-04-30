@@ -1,6 +1,5 @@
 """Entry point: python -m mcp_server_odoo"""
 
-from .server import create_server
+from .server import main
 
-app = create_server()
-app.run()
+main()

@@ -69,3 +69,8 @@ def create_server() -> FastMCP:
     logger.info("MCP server ready with 12 tools")
 
     return app
+
+
+def main() -> None:
+    """Console-script entry point: build the server and run it."""
+    create_server().run()
