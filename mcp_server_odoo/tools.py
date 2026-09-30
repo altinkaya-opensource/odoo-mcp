@@ -643,6 +643,8 @@ def _register_model_tools(
                 save_binary_field("product.product", 42, "image_1920",
                     "/tmp/product_image.png")
         """
+        # Writes to the MCP host's disk, so readonly mode blocks it too.
+        _check_write(config)
         resolved_path = _validate_output_path(output_path)
 
         try:

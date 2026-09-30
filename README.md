@@ -57,7 +57,8 @@ Add to your `claude_desktop_config.json`:
 
 ### 🔒 Readonly Mode
 
-Block all write operations by adding `READONLY_MODE=true`:
+Block all write operations by adding `READONLY_MODE=true`. This also disables
+`save_binary_field`, because it writes files to the machine running the server:
 
 ```bash
 claude mcp add odoo \
@@ -93,7 +94,7 @@ claude mcp add odoo \
 | `copy_record`    | 📋 Duplicate an existing record with optional field overrides                         |
 | `execute_method` | ⚙️ Call any business method (e.g. `action_confirm`, `button_validate`, `action_post`) |
 
-> 🚫 Write tools are disabled when `READONLY_MODE=true`.
+> 🚫 Write tools and `save_binary_field` are disabled when `READONLY_MODE=true`.
 
 ## ✨ Features
 
