@@ -587,7 +587,7 @@ def _register_model_tools(
         Returns: {"model": str, "fields": {field_name: {attr: value}}, "count": int}
         """
         try:
-            fields_info = conn.fields_get(model, attributes)
+            fields_info = await conn.fields_get(model, attributes)
         except OdooConnectionError as exc:
             raise _handle_odoo_error(exc, f"getting fields for {model}") from exc
 
