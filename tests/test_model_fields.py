@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from fastmcp import Client, FastMCP
-
 from mcp_server_odoo.connection import OdooConnection, OdooConnectionError
 from mcp_server_odoo.tools import register_tools
 

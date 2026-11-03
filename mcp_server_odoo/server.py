@@ -66,7 +66,7 @@ def create_server() -> FastMCP:
     logger.info("MCP server mode: %s", mode)
 
     register_tools(app, conn, config)
-    logger.info("MCP server ready with 12 tools")
+    logger.info("MCP server ready with 13 tools")
 
     return app
 

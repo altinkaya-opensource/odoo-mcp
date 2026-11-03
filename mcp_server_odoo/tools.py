@@ -120,6 +120,91 @@ def _validate_output_path(output_path: str) -> str:
     return resolved
 
 
+def _safe_download_component(value: str) -> str:
+    """Make a model or field name safe for use in a generated file name."""
+    return "".join(char if char.isalnum() or char in "_-" else "_" for char in value)
+
+
+def _validate_download_filename(filename: str) -> str:
+    """Validate a caller-supplied download file name.
+
+    Only a plain basename is accepted; directories are rejected so the file
+    cannot escape the configured download directory.
+    """
+    name = filename.strip()
+    if not name:
+        raise ToolError("filename must not be empty")
+    if name in {".", ".."} or os.path.basename(name) != name or "\\" in name:
+        raise ToolError("filename must be a file name, not a path")
+    if "\x00" in name:
+        raise ToolError("filename must not contain NUL bytes")
+    if len(name.encode("utf-8")) > 255:
+        raise ToolError("filename is too long (maximum 255 bytes)")
+    return name
+
+
+def _generate_download_filename(model: str, record_id: int, field: str) -> str:
+    """Generate a safe default file name for a downloaded binary field."""
+    model_part = _safe_download_component(model)
+    field_part = _safe_download_component(field)
+    return _validate_download_filename(f"{model_part}_{record_id}_{field_part}.bin")
+
+
+def _resolve_download_path(config: OdooConfig, filename: str) -> str:
+    """Resolve and create the path for a downloaded file.
+
+    The target is confined to ``config.download_dir``. Raises ToolError if the
+    configured directory is unsafe or the resolved target escapes it.
+    """
+    base_dir = os.path.expanduser(getattr(config, "download_dir", "") or "")
+    if not base_dir:
+        raise ToolError(
+            "Download directory is not configured (set ODOO_MCP_DOWNLOAD_DIR)"
+        )
+    base_dir = _validate_output_path(base_dir)
+    target_path = os.path.realpath(os.path.join(base_dir, filename))
+
+    try:
+        inside = os.path.commonpath([base_dir, target_path]) == base_dir
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ToolError("Download path escapes the configured download directory")
+
+    try:
+        os.makedirs(base_dir, mode=0o700, exist_ok=True)
+    except OSError as exc:
+        raise ToolError(
+            f"Could not create download directory '{base_dir}': {exc}"
+        ) from exc
+    return target_path
+
+
+async def _read_binary_field(
+    conn: OdooConnection,
+    model: str,
+    record_id: int,
+    field: str,
+) -> bytes:
+    """Read and decode a binary field from an Odoo record."""
+    try:
+        records = await conn.read(model, [record_id], [field])
+    except OdooConnectionError as exc:
+        raise _handle_odoo_error(exc, f"reading {model} ID {record_id}") from exc
+
+    if not records:
+        raise ToolError(f"Record not found: {model} with ID {record_id}")
+
+    b64_data = records[0].get(field)
+    if not b64_data:
+        raise ToolError(f"Field '{field}' is empty on {model} ID {record_id}")
+
+    try:
+        return base64.b64decode(b64_data)
+    except Exception as exc:
+        raise ToolError(f"Failed to decode base64 data: {exc}") from exc
+
+
 def _parse_domain_safe(domain: str | list | None) -> list:
     """Parse domain and convert validation errors to ToolError."""
     try:
@@ -646,23 +731,7 @@ def _register_model_tools(
         # Writes to the MCP host's disk, so readonly mode blocks it too.
         _check_write(config)
         resolved_path = _validate_output_path(output_path)
-
-        try:
-            records = await conn.read(model, [record_id], [field])
-        except OdooConnectionError as exc:
-            raise _handle_odoo_error(exc, f"reading {model} ID {record_id}") from exc
-
-        if not records:
-            raise ToolError(f"Record not found: {model} with ID {record_id}")
-
-        b64_data = records[0].get(field)
-        if not b64_data:
-            raise ToolError(f"Field '{field}' is empty on {model} ID {record_id}")
-
-        try:
-            binary_data = base64.b64decode(b64_data)
-        except Exception as exc:
-            raise ToolError(f"Failed to decode base64 data: {exc}") from exc
+        binary_data = await _read_binary_field(conn, model, record_id, field)
 
         parent_dir = os.path.dirname(resolved_path)
         if parent_dir:
@@ -689,6 +758,107 @@ def _register_model_tools(
             "field": field,
         }
 
+    # =================================================================
+    # 8. download_binary_field
+    # =================================================================
+    @app.tool(
+        annotations={"readOnlyHint": True, "openWorldHint": False},
+        timeout=60.0,
+    )
+    async def download_binary_field(
+        model: Annotated[str, Field(description=MODEL_DESCRIPTION)],
+        record_id: Annotated[
+            int,
+            Field(description="The numeric ID of the record to read from.", ge=1),
+        ],
+        field: Annotated[
+            str,
+            Field(
+                description=(
+                    "Binary field name to read, e.g. 'image_1920' or 'datas'."
+                ),
+            ),
+        ],
+        filename: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional file name to save under the download directory. "
+                    "A basename only, without directories. When omitted, a name "
+                    "is generated from the model, record ID and field. Pass a "
+                    "name with the correct extension when you know it (for "
+                    "example 'photo.png' or 'invoice.pdf')."
+                ),
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Download a binary/image field from an Odoo record to a local file.
+
+        This is the read-only-safe counterpart of `save_binary_field`: it also
+        works when READONLY_MODE is enabled, because it never writes to Odoo
+        and only writes inside the configured download directory
+        (`ODOO_MCP_DOWNLOAD_DIR`, which defaults to the `odoo-mcp` folder in
+        the system temp directory).
+
+        Use this instead of `read_record` when you need to fetch large binary
+        fields (images, attachments) without returning base64 data to the
+        model.
+
+        Returns:
+            {"success": true, "path": str, "size_bytes": int, "model": str,
+             "record_id": int, "field": str}
+
+        Examples:
+            Download an employee photo:
+                download_binary_field("hr.employee", 11, "image_1920",
+                    "employee_11.png")
+            Download an attachment:
+                download_binary_field("ir.attachment", 42, "datas", "invoice.pdf")
+        """
+        # No _check_write(): a confined temp file is the whole point of this
+        # tool. _resolve_download_path() keeps the target inside download_dir.
+        resolved_path = _resolve_download_path(
+            config,
+            _validate_download_filename(filename)
+            if filename is not None
+            else _generate_download_filename(model, record_id, field),
+        )
+        binary_data = await _read_binary_field(conn, model, record_id, field)
+
+        try:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            fd = os.open(resolved_path, flags, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(binary_data)
+        except OSError as exc:
+            raise ToolError(f"Failed to write '{resolved_path}': {exc}") from exc
+
+        try:
+            os.chmod(resolved_path, 0o600)
+        except OSError as exc:
+            logger.warning("Could not set permissions on %s: %s", resolved_path, exc)
+
+        size_bytes = len(binary_data)
+        logger.info(
+            "Downloaded %s.%s (ID %d) to %s (%d bytes)",
+            model,
+            field,
+            record_id,
+            resolved_path,
+            size_bytes,
+        )
+
+        return {
+            "success": True,
+            "path": resolved_path,
+            "size_bytes": size_bytes,
+            "model": model,
+            "record_id": record_id,
+            "field": field,
+        }
+
 
 def _register_write_tools(
     app: FastMCP,
@@ -698,7 +868,7 @@ def _register_write_tools(
     """Register write/mutating tools."""
 
     # =================================================================
-    # 8. create_record
+    # 9. create_record
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": False},
@@ -740,7 +910,7 @@ def _register_write_tools(
         return {"success": True, "id": record_id, "record": record, "url": url}
 
     # =================================================================
-    # 9. update_record
+    # 10. update_record
     # =================================================================
     @app.tool(
         annotations={
@@ -798,7 +968,7 @@ def _register_write_tools(
         return {"success": True, "id": record_id, "record": record, "url": url}
 
     # =================================================================
-    # 10. delete_record
+    # 11. delete_record
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": True},
@@ -834,7 +1004,7 @@ def _register_write_tools(
         return {"success": True, "deleted_id": record_id}
 
     # =================================================================
-    # 11. execute_method
+    # 12. execute_method
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": False},
@@ -923,7 +1093,7 @@ def _register_copy_tools(
     """Register record duplication tools."""
 
     # =================================================================
-    # 12. copy_record
+    # 13. copy_record
     # =================================================================
     @app.tool(
         annotations={"readOnlyHint": False, "destructiveHint": False},
