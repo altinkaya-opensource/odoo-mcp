@@ -797,8 +797,7 @@ def _register_model_tools(
         This is the read-only-safe counterpart of `save_binary_field`: it also
         works when READONLY_MODE is enabled, because it never writes to Odoo
         and only writes inside the configured download directory
-        (`ODOO_MCP_DOWNLOAD_DIR`, which defaults to the `odoo-mcp` folder in
-        the system temp directory).
+        (`ODOO_MCP_DOWNLOAD_DIR`, which defaults to `~/.cache/odoo-mcp`).
 
         Use this instead of `read_record` when you need to fetch large binary
         fields (images, attachments) without returning base64 data to the

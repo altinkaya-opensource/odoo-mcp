@@ -3,7 +3,6 @@
 import logging
 import os
 import sys
-import tempfile
 
 from dotenv import load_dotenv
 
@@ -28,8 +27,7 @@ class OdooConfig:
         self.log_file = os.getenv("ODOO_MCP_LOG_FILE", "")
         self.default_limit = int(os.getenv("ODOO_MCP_DEFAULT_LIMIT", "10"))
         self.download_dir = os.path.expanduser(
-            os.getenv("ODOO_MCP_DOWNLOAD_DIR")
-            or os.path.join(tempfile.gettempdir(), "odoo-mcp")
+            os.getenv("ODOO_MCP_DOWNLOAD_DIR") or "~/.cache/odoo-mcp"
         )
 
     @staticmethod

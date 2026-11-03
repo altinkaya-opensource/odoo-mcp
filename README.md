@@ -60,8 +60,7 @@ Add to your `claude_desktop_config.json`:
 Block all write operations by adding `READONLY_MODE=true`. This also disables
 `save_binary_field`, because it writes files to the machine running the server.
 Use `download_binary_field` instead: it is allowed in readonly mode and writes
-only inside `ODOO_MCP_DOWNLOAD_DIR` (by default an `odoo-mcp` folder in the
-system temp directory):
+only inside `ODOO_MCP_DOWNLOAD_DIR` (by default `~/.cache/odoo-mcp`):
 
 ```bash
 claude mcp add odoo \
@@ -216,17 +215,17 @@ get_model_fields("sale.order", attributes=["string", "type", "required"])
 
 All configuration is done through environment variables:
 
-| Variable                 | Required | Default           | Description                                     |
-| ------------------------ | -------- | ----------------- | ----------------------------------------------- |
-| `ODOO_URL`               | ✅       |                   | Odoo server URL (e.g. `http://localhost:8069`)  |
-| `ODOO_DB`                | ✅       |                   | Database name                                   |
-| `ODOO_USER`              | ✅       |                   | Username                                        |
-| `ODOO_PASSWORD`          | ✅       |                   | Password or API key                             |
-| `READONLY_MODE`          |          | `false`           | Set to `true` to disable all write operations   |
-| `ODOO_MCP_LOG_LEVEL`     |          | `INFO`            | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `ODOO_MCP_LOG_FILE`      |          | stderr            | Path to log file                                |
-| `ODOO_MCP_DEFAULT_LIMIT` |          | `10`              | Default record limit for search operations      |
-| `ODOO_MCP_DOWNLOAD_DIR`  |          | `<temp>/odoo-mcp` | Directory used by `download_binary_field`       |
+| Variable                 | Required | Default             | Description                                     |
+| ------------------------ | -------- | ------------------- | ----------------------------------------------- |
+| `ODOO_URL`               | ✅       |                     | Odoo server URL (e.g. `http://localhost:8069`)  |
+| `ODOO_DB`                | ✅       |                     | Database name                                   |
+| `ODOO_USER`              | ✅       |                     | Username                                        |
+| `ODOO_PASSWORD`          | ✅       |                     | Password or API key                             |
+| `READONLY_MODE`          |          | `false`             | Set to `true` to disable all write operations   |
+| `ODOO_MCP_LOG_LEVEL`     |          | `INFO`              | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `ODOO_MCP_LOG_FILE`      |          | stderr              | Path to log file                                |
+| `ODOO_MCP_DEFAULT_LIMIT` |          | `10`                | Default record limit for search operations      |
+| `ODOO_MCP_DOWNLOAD_DIR`  |          | `~/.cache/odoo-mcp` | Directory used by `download_binary_field`       |
 
 Alternatively, create a `.env` file in the project root.
 
