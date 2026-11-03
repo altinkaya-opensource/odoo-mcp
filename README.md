@@ -58,7 +58,9 @@ Add to your `claude_desktop_config.json`:
 ### 🔒 Readonly Mode
 
 Block all write operations by adding `READONLY_MODE=true`. This also disables
-`save_binary_field`, because it writes files to the machine running the server:
+`save_binary_field`, because it writes files to the machine running the server.
+Use `download_binary_field` instead: it is allowed in readonly mode and writes
+only inside `ODOO_MCP_DOWNLOAD_DIR` (by default `~/.cache/odoo-mcp`):
 
 ```bash
 claude mcp add odoo \
@@ -74,15 +76,16 @@ claude mcp add odoo \
 
 ### 📖 Read Operations
 
-| Tool                | Description                                                                       |
-| ------------------- | --------------------------------------------------------------------------------- |
-| `search_records`    | 🔍 Search any model with domain filters, field selection, pagination, and sorting |
-| `read_record`       | 📄 Read a single record by ID with smart field selection                          |
-| `get_record_count`  | 🔢 Count records matching a domain filter (lightweight, no data fetched)          |
-| `list_models`       | 📋 List all non-transient models available in the database                        |
-| `get_model_fields`  | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model      |
-| `read_group`        | 📊 Group records and compute aggregations (sum, avg, count) with date granularity |
-| `save_binary_field` | 💾 Save a binary/image field from a record directly to a local file               |
+| Tool                    | Description                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------- |
+| `search_records`        | 🔍 Search any model with domain filters, field selection, pagination, and sorting |
+| `read_record`           | 📄 Read a single record by ID with smart field selection                          |
+| `get_record_count`      | 🔢 Count records matching a domain filter (lightweight, no data fetched)          |
+| `list_models`           | 📋 List all non-transient models available in the database                        |
+| `get_model_fields`      | 🏗️ Inspect field definitions (type, required, help text, etc.) for any model      |
+| `read_group`            | 📊 Group records and compute aggregations (sum, avg, count) with date granularity |
+| `save_binary_field`     | 💾 Save a binary/image field from a record directly to a local file               |
+| `download_binary_field` | 📥 Download a binary/image field into the configured download directory           |
 
 ### ✏️ Write Operations
 
@@ -95,6 +98,8 @@ claude mcp add odoo \
 | `execute_method` | ⚙️ Call any business method (e.g. `action_confirm`, `button_validate`, `action_post`) |
 
 > 🚫 Write tools and `save_binary_field` are disabled when `READONLY_MODE=true`.
+> `download_binary_field` remains available because it only writes to its own
+> download directory.
 
 ## ✨ Features
 
@@ -173,6 +178,15 @@ copy_record("sale.order", 10, default={"partner_id": 99})
 save_binary_field("product.product", 42, "image_1920", "/tmp/product_image.png")
 ```
 
+**📥 Download a product image into the MCP download directory:**
+
+```
+download_binary_field("product.product", 42, "image_1920", "product_image.png")
+```
+
+The tool returns the absolute path it wrote, so no output path is needed. It works
+with `READONLY_MODE=true` and rejects file names containing directories.
+
 **📊 Total sales by partner:**
 
 ```
@@ -201,16 +215,17 @@ get_model_fields("sale.order", attributes=["string", "type", "required"])
 
 All configuration is done through environment variables:
 
-| Variable                 | Required | Default | Description                                     |
-| ------------------------ | -------- | ------- | ----------------------------------------------- |
-| `ODOO_URL`               | ✅       |         | Odoo server URL (e.g. `http://localhost:8069`)  |
-| `ODOO_DB`                | ✅       |         | Database name                                   |
-| `ODOO_USER`              | ✅       |         | Username                                        |
-| `ODOO_PASSWORD`          | ✅       |         | Password or API key                             |
-| `READONLY_MODE`          |          | `false` | Set to `true` to disable all write operations   |
-| `ODOO_MCP_LOG_LEVEL`     |          | `INFO`  | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `ODOO_MCP_LOG_FILE`      |          | stderr  | Path to log file                                |
-| `ODOO_MCP_DEFAULT_LIMIT` |          | `10`    | Default record limit for search operations      |
+| Variable                 | Required | Default             | Description                                     |
+| ------------------------ | -------- | ------------------- | ----------------------------------------------- |
+| `ODOO_URL`               | ✅       |                     | Odoo server URL (e.g. `http://localhost:8069`)  |
+| `ODOO_DB`                | ✅       |                     | Database name                                   |
+| `ODOO_USER`              | ✅       |                     | Username                                        |
+| `ODOO_PASSWORD`          | ✅       |                     | Password or API key                             |
+| `READONLY_MODE`          |          | `false`             | Set to `true` to disable all write operations   |
+| `ODOO_MCP_LOG_LEVEL`     |          | `INFO`              | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `ODOO_MCP_LOG_FILE`      |          | stderr              | Path to log file                                |
+| `ODOO_MCP_DEFAULT_LIMIT` |          | `10`                | Default record limit for search operations      |
+| `ODOO_MCP_DOWNLOAD_DIR`  |          | `~/.cache/odoo-mcp` | Directory used by `download_binary_field`       |
 
 Alternatively, create a `.env` file in the project root.
 
